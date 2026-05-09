@@ -1,12 +1,12 @@
 # processor.py
-from logger import get_logger
-from notifications import send_report_assigned
+
 from supabase import Client
 from ai_classifier import classify_image
 from state_machine import transition, InvalidTransitionError
 from router import route_report
 from typing import Optional
 import datetime
+from logger import get_logger
 
 logger = get_logger("processor")
 
@@ -34,7 +34,17 @@ def process_report(supabase: Client, report_id: str) -> dict:
     supabase.table("reports").update({"status": "ai_processing"}).eq("id", report_id).execute()
 
     # 3. Call AI
-    ai_result = classify_image(image_url, citizen_description)
+    try:
+        ai_result = classify_image(image_url=image_url, citizen_description=citizen_description)
+    except Exception as e:
+        logger.warning(f"AI classification failed for report {report_id}: {e}")
+        supabase.table("reports").update({
+            "status": "needs_review",
+            "needs_human_review": True,
+        }).eq("id", report_id).execute()
+        _log_transition(supabase, report_id, "ai_processing", "needs_review",
+                        note=f"AI unavailable: {str(e)}")
+        return {"status": "needs_review", "reason": "AI unavailable"}
 
     # 4. Handle invalid issue
     if not ai_result.get("is_valid_issue"):
@@ -71,8 +81,9 @@ def process_report(supabase: Client, report_id: str) -> dict:
         _log_transition(supabase, report_id, "ai_processing", "assigned",
                         note=f"Assigned to {routing['assigned_to']}")
 
-        # 🔔 Send email notification to department
+        # Send email notification to department
         try:
+            from notifications import send_report_assigned
             send_report_assigned(
                 department_email=routing["department_email"],
                 department_name=routing["assigned_to"],
