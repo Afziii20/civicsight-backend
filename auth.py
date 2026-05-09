@@ -15,8 +15,14 @@ def get_current_user(authorization: str = Header(...)):
 
     token = authorization.split(" ")[1]
 
+    # Debug — remove after fixing
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Missing env vars: URL={'set' if SUPABASE_URL else 'MISSING'}, KEY={'set' if SUPABASE_SERVICE_KEY else 'MISSING'}"
+        )
+
     try:
-        # Call Supabase auth API directly to validate the token
         response = httpx.get(
             f"{SUPABASE_URL}/auth/v1/user",
             headers={
@@ -30,7 +36,6 @@ def get_current_user(authorization: str = Header(...)):
 
         user_data = response.json()
 
-        # Return a simple object with id and email
         class User:
             def __init__(self, data):
                 self.id = data["id"]
